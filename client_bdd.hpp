@@ -13,7 +13,7 @@ public:
     ClientBDD(const char *host, const char *user,
               const char *pass, const char *name);
     ~ClientBDD();
-    int open();
+    void open();
     int ensure_connection();
     int insert(const char *capteur_id,
                float temperature, float pression, float humidite);

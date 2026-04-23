@@ -1,6 +1,7 @@
 #include "client_bdd.hpp"
 #include <cstdio>
 #include <cstring>
+#include <stdexcept>
 
 ClientBDD::ClientBDD(const char *host, const char *user,
                      const char *pass, const char *name)
@@ -15,23 +16,19 @@ ClientBDD::~ClientBDD()
 int ClientBDD::connect()
 {
     conn_ = mysql_init(nullptr);
-    if (!conn_) {
-        fprintf(stderr, "[DB] mysql_init échoué\n");
-        return -1;
-    }
+    if (!conn_)
+        throw std::runtime_error("[DB] mysql_init échoué");
 
-    if (!mysql_real_connect(conn_, host_, user_, pass_, name_, 0, nullptr, 0)) {
-        fprintf(stderr, "[DB] connexion échouée: %s\n", mysql_error(conn_));
-        return -1;
-    }
+    if (!mysql_real_connect(conn_, host_, user_, pass_, name_, 0, nullptr, 0))
+        throw std::runtime_error(std::string("[DB] connexion échouée: ") + mysql_error(conn_));
 
     printf("[DB] Connecté à %s/%s\n", host_, name_);
     return 0;
 }
 
-int ClientBDD::open()
+void ClientBDD::open()
 {
-    return connect();
+    connect();
 }
 
 int ClientBDD::ensure_connection()

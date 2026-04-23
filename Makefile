@@ -3,7 +3,7 @@ CXXFLAGS = -Wall -Wextra -std=c++17 -O2
 LDFLAGS  = -lmosquitto -lmysqlclient
 
 TARGET   = mqtt_mysql_server
-SRC      = mqtt_mysql_server.cpp client_bdd.cpp
+SRC      = mqtt_mysql_server.cpp client_bdd.cpp client_mqtt.cpp
 
 all: $(TARGET)
 

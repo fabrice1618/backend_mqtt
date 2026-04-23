@@ -1,10 +1,11 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <ctime>
 #include <csignal>
+#include <stdexcept>
 #include <mosquitto.h>
 #include "client_bdd.hpp"
+#include "client_mqtt.hpp"
 
 /* ── Configuration ──────────────────────────────────────────────── */
 
@@ -21,14 +22,12 @@
 
 /* ── Globals ────────────────────────────────────────────────────── */
 
-static struct mosquitto *mosq;
-static volatile int     running = 1;
-
-/* ── Signaux ────────────────────────────────────────────────────── */
+static volatile int running = 1;
+static ClientBDD   *g_bdd;
 
 static void on_signal(int sig)
 {
-    (void)sig;          // supprime l'avertissement compilateur "unused parameter"
+    (void)sig;
     running = 0;
 }
 
@@ -55,11 +54,11 @@ static char *parse_string_field(const char *json, const char *key,
     snprintf(pattern, sizeof(pattern), "\"%s\"", key);
 
     const char *p = strstr(json, pattern);
-    if (!p) return NULL;
+    if (!p) return nullptr;
 
     p += strlen(pattern);
     while (*p == ' ' || *p == ':' || *p == '\t') p++;
-    if (*p != '"') return NULL;
+    if (*p != '"') return nullptr;
     p++;
 
     size_t i = 0;
@@ -70,31 +69,17 @@ static char *parse_string_field(const char *json, const char *key,
     return buf;
 }
 
-/* ── Callback MQTT ──────────────────────────────────────────────── */
+/* ── Callback message ───────────────────────────────────────────── */
 
-static void on_message(struct mosquitto *, void *userdata,
-                       const struct mosquitto_message *msg)
+static void on_message(const char *topic, const char *payload)
 {
+    printf("[MQTT] %s → %s\n", topic, payload);
 
-    if (!msg->payload || msg->payloadlen == 0)
-        return;
-
-    /* Copie NUL-terminée du payload */
-    char payload[1024];
-    size_t len = (size_t)msg->payloadlen;
-    if (len >= sizeof(payload)) len = sizeof(payload) - 1;
-    memcpy(payload, msg->payload, len);
-    payload[len] = '\0';
-
-    printf("[MQTT] %s → %s\n", msg->topic, payload);
-
-    /* Extraire le capteur_id du topic (capteurs/<id>) ou du JSON */
     char capteur_id[64] = "inconnu";
-    const char *slash = strrchr(msg->topic, '/');
+    const char *slash = strrchr(topic, '/');
     if (slash && *(slash + 1))
         snprintf(capteur_id, sizeof(capteur_id), "%s", slash + 1);
 
-    /* Parser les champs */
     char json_id[64];
     if (parse_string_field(payload, "capteur_id", json_id, sizeof(json_id)))
         snprintf(capteur_id, sizeof(capteur_id), "%s", json_id);
@@ -103,23 +88,10 @@ static void on_message(struct mosquitto *, void *userdata,
     float pression    = parse_float_field(payload, "pression");
     float humidite    = parse_float_field(payload, "humidite");
 
-    /* Insérer en base */
-    ClientBDD *bdd = static_cast<ClientBDD *>(userdata);
     if (temperature > -900.0f || pression > -900.0f || humidite > -900.0f) {
-        if (bdd->insert(capteur_id, temperature, pression, humidite) == 0)
+        if (g_bdd->insert(capteur_id, temperature, pression, humidite) == 0)
             printf("[DB]  Inséré: %s T=%.1f P=%.1f H=%.1f\n",
                    capteur_id, temperature, pression, humidite);
-    }
-}
-
-static void on_connect(struct mosquitto *m, void *, int rc)
-{
-    if (rc == 0) {
-        printf("[MQTT] Connecté au broker %s:%d\n", MQTT_HOST, MQTT_PORT);
-        mosquitto_subscribe(m, nullptr, MQTT_TOPIC, 1);
-        printf("[MQTT] Abonné au topic: %s\n", MQTT_TOPIC);
-    } else {
-        fprintf(stderr, "[MQTT] Connexion échouée: %s\n", mosquitto_connack_string(rc));
     }
 }
 
@@ -130,55 +102,29 @@ int main(void)
     signal(SIGINT, on_signal);
     signal(SIGTERM, on_signal);
 
-    /* Initialisation Mosquitto */
-    mosquitto_lib_init();
+    try {
+        ClientBDD bdd(DB_HOST, DB_USER, DB_PASS, DB_NAME);
+        g_bdd = &bdd;
 
-    ClientBDD bdd(DB_HOST, DB_USER, DB_PASS, DB_NAME);
+        ClientMQTT mqtt(MQTT_HOST, MQTT_PORT, MQTT_CLIENT_ID, MQTT_TOPIC, MQTT_KEEPALIVE,
+                        on_message);
 
-    /* Connexion DB */
-    if (bdd.open() != 0)
-        goto cleanup;
+        bdd.open();
+        mqtt.open();
 
-    /* Création du client MQTT */
-    mosq = mosquitto_new(MQTT_CLIENT_ID, true, &bdd);
-    if (!mosq) {
-        fprintf(stderr, "[MQTT] Impossible de créer le client\n");
-        goto cleanup;
-    }
+        printf("=== Serveur MQTT→MySQL démarré ===\n");
+        printf("Broker : %s:%d | Topic : %s\n", MQTT_HOST, MQTT_PORT, MQTT_TOPIC);
+        printf("Ctrl+C pour arrêter\n\n");
 
-    mosquitto_connect_callback_set(mosq, on_connect);
-    mosquitto_message_callback_set(mosq, on_message);
-
-    /* Connexion MQTT */
-    if (mosquitto_connect(mosq, MQTT_HOST, MQTT_PORT, MQTT_KEEPALIVE) !=
-        MOSQ_ERR_SUCCESS) {
-        fprintf(stderr, "[MQTT] Connexion au broker échouée\n");
-        goto cleanup;
-    }
-
-    printf("=== Serveur MQTT→MySQL démarré ===\n");
-    printf("Broker : %s:%d | Topic : %s\n", MQTT_HOST, MQTT_PORT, MQTT_TOPIC);
-    printf("Ctrl+C pour arrêter\n\n");
-
-    /* Boucle principale */
-    while (running) {
-        bdd.ensure_connection();
-        int rc = mosquitto_loop(mosq, 1000, 1);
-        if (rc != MOSQ_ERR_SUCCESS && running) {
-            fprintf(stderr, "[MQTT] Erreur: %s — reconnexion dans 5s\n",
-                    mosquitto_strerror(rc));
-            sleep(5);
-            mosquitto_reconnect(mosq);
+        while (running) {
+            bdd.ensure_connection();
+            mqtt.loop(1000);
         }
+    } catch (const std::exception &e) {
+        fprintf(stderr, "Erreur fatale: %s\n", e.what());
+        return 1;
     }
 
-cleanup:
-    printf("\nArrêt en cours...\n");
-    if (mosq) {
-        mosquitto_disconnect(mosq);
-        mosquitto_destroy(mosq);
-    }
-    mosquitto_lib_cleanup();
-    printf("Serveur arrêté.\n");
+    printf("\nServeur arrêté.\n");
     return 0;
 }
