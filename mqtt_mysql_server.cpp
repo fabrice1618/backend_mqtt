@@ -35,28 +35,6 @@ static float parse_float_field(const char *json, const char *key)
     return (float)atof(p);
 }
 
-static char *parse_string_field(const char *json, const char *key,
-                                char *buf, size_t buflen)
-{
-    char pattern[64];
-    snprintf(pattern, sizeof(pattern), "\"%s\"", key);
-
-    const char *p = strstr(json, pattern);
-    if (!p) return nullptr;
-
-    p += strlen(pattern);
-    while (*p == ' ' || *p == ':' || *p == '\t') p++;
-    if (*p != '"') return nullptr;
-    p++;
-
-    size_t i = 0;
-    while (*p && *p != '"' && i < buflen - 1)
-        buf[i++] = *p++;
-    buf[i] = '\0';
-
-    return buf;
-}
-
 /* ── Callback message ───────────────────────────────────────────── */
 
 static void on_message(const char *topic, const char *payload)
@@ -67,10 +45,6 @@ static void on_message(const char *topic, const char *payload)
     const char *slash = strrchr(topic, '/');
     if (slash && *(slash + 1))
         snprintf(capteur_id, sizeof(capteur_id), "%s", slash + 1);
-
-    char json_id[64];
-    if (parse_string_field(payload, "capteur_id", json_id, sizeof(json_id)))
-        snprintf(capteur_id, sizeof(capteur_id), "%s", json_id);
 
     float temperature = parse_float_field(payload, "temperature");
     float pression    = parse_float_field(payload, "pression");

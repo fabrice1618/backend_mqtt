@@ -99,7 +99,6 @@ Le segment final du topic est utilisé comme identifiant du capteur (ex. `capteu
 | `temperature` | float | Température en °C |
 | `pression` | float | Pression atmosphérique en hPa |
 | `humidite` | float | Humidité relative en % |
-| `capteur_id` | string | *(optionnel)* Remplace l'ID extrait du topic |
 
 **Règles d'insertion :**
 
