@@ -1,14 +1,14 @@
-CC      = gcc
-CFLAGS  = -Wall -Wextra -std=c11 -O2
-LDFLAGS = -lmosquitto -lmysqlclient
+CXX      = g++
+CXXFLAGS = -Wall -Wextra -std=c++17 -O2
+LDFLAGS  = -lmosquitto -lmysqlclient
 
-TARGET  = mqtt_mysql_server
-SRC     = mqtt_mysql_server.c
+TARGET   = mqtt_mysql_server
+SRC      = mqtt_mysql_server.cpp
 
 all: $(TARGET)
 
 $(TARGET): $(SRC)
-	$(CC) $(CFLAGS) -o $@ $< $(LDFLAGS)
+	$(CXX) $(CXXFLAGS) -o $@ $< $(LDFLAGS)
 
 clean:
 	rm -f $(TARGET)

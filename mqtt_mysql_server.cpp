@@ -1,8 +1,8 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <time.h>
-#include <signal.h>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <ctime>
+#include <csignal>
 #include <mosquitto.h>
 #include <mysql/mysql.h>
 
@@ -37,13 +37,13 @@ static void on_signal(int sig)
 
 static int db_connect(void)
 {
-    db_conn = mysql_init(NULL);
+    db_conn = mysql_init(nullptr);
     if (!db_conn) {
         fprintf(stderr, "[DB] mysql_init échoué\n");
         return -1;
     }
 
-    if (!mysql_real_connect(db_conn, DB_HOST, DB_USER, DB_PASS, DB_NAME, 0, NULL, 0)) {
+    if (!mysql_real_connect(db_conn, DB_HOST, DB_USER, DB_PASS, DB_NAME, 0, nullptr, 0)) {
         fprintf(stderr, "[DB] connexion échouée: %s\n", mysql_error(db_conn));
         return -1;
     }
@@ -114,11 +114,9 @@ static char *parse_string_field(const char *json, const char *key,
 
 /* ── Callback MQTT ──────────────────────────────────────────────── */
 
-static void on_message(struct mosquitto *m, void *userdata,
+static void on_message(struct mosquitto *, void *,
                        const struct mosquitto_message *msg)
 {
-    (void)m;
-    (void)userdata;
 
     if (!msg->payload || msg->payloadlen == 0)
         return;
@@ -155,15 +153,14 @@ static void on_message(struct mosquitto *m, void *userdata,
     }
 }
 
-static void on_connect(struct mosquitto *m, void *userdata, int rc)
+static void on_connect(struct mosquitto *m, void *, int rc)
 {
-    (void)userdata;
     if (rc == 0) {
         printf("[MQTT] Connecté au broker %s:%d\n", MQTT_HOST, MQTT_PORT);
-        mosquitto_subscribe(m, NULL, MQTT_TOPIC, 1);
+        mosquitto_subscribe(m, nullptr, MQTT_TOPIC, 1);
         printf("[MQTT] Abonné au topic: %s\n", MQTT_TOPIC);
     } else {
-        fprintf(stderr, "[MQTT] Connexion échouée: %s\n", mosquitto_conn_return_string(rc));
+        fprintf(stderr, "[MQTT] Connexion échouée: %s\n", mosquitto_connack_string(rc));
     }
 }
 
@@ -194,7 +191,7 @@ int main(void)
         goto cleanup;
 
     /* Création du client MQTT */
-    mosq = mosquitto_new(MQTT_CLIENT_ID, true, NULL);
+    mosq = mosquitto_new(MQTT_CLIENT_ID, true, nullptr);
     if (!mosq) {
         fprintf(stderr, "[MQTT] Impossible de créer le client\n");
         goto cleanup;
