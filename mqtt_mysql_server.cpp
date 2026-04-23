@@ -4,7 +4,7 @@
 #include <ctime>
 #include <csignal>
 #include <mosquitto.h>
-#include <mysql/mysql.h>
+#include "client_bdd.hpp"
 
 /* ── Configuration ──────────────────────────────────────────────── */
 
@@ -21,7 +21,6 @@
 
 /* ── Globals ────────────────────────────────────────────────────── */
 
-static MYSQL           *db_conn;
 static struct mosquitto *mosq;
 static volatile int     running = 1;
 
@@ -29,49 +28,8 @@ static volatile int     running = 1;
 
 static void on_signal(int sig)
 {
-    (void)sig;
+    (void)sig;          // supprime l'avertissement compilateur "unused parameter"
     running = 0;
-}
-
-/* ── Base de données ────────────────────────────────────────────── */
-
-static int db_connect(void)
-{
-    db_conn = mysql_init(nullptr);
-    if (!db_conn) {
-        fprintf(stderr, "[DB] mysql_init échoué\n");
-        return -1;
-    }
-
-    if (!mysql_real_connect(db_conn, DB_HOST, DB_USER, DB_PASS, DB_NAME, 0, nullptr, 0)) {
-        fprintf(stderr, "[DB] connexion échouée: %s\n", mysql_error(db_conn));
-        return -1;
-    }
-
-    printf("[DB] Connecté à %s/%s\n", DB_HOST, DB_NAME);
-    return 0;
-}
-
-static int db_insert(const char *capteur_id,
-                     float temperature, float pression, float humidite)
-{
-    char query[512];
-    char esc_id[129];
-
-    /* Échapper l'identifiant capteur */
-    mysql_real_escape_string(db_conn, esc_id, capteur_id,
-                             (unsigned long)strlen(capteur_id));
-
-    snprintf(query, sizeof(query),
-        "INSERT INTO releves (capteur_id, temperature, pression, humidite) "
-        "VALUES ('%s', %.2f, %.2f, %.2f)",
-        esc_id, temperature, pression, humidite);
-
-    if (mysql_query(db_conn, query)) {
-        fprintf(stderr, "[DB] INSERT échoué: %s\n", mysql_error(db_conn));
-        return -1;
-    }
-    return 0;
 }
 
 /* ── Parsing JSON minimaliste ───────────────────────────────────── */
@@ -114,7 +72,7 @@ static char *parse_string_field(const char *json, const char *key,
 
 /* ── Callback MQTT ──────────────────────────────────────────────── */
 
-static void on_message(struct mosquitto *, void *,
+static void on_message(struct mosquitto *, void *userdata,
                        const struct mosquitto_message *msg)
 {
 
@@ -146,8 +104,9 @@ static void on_message(struct mosquitto *, void *,
     float humidite    = parse_float_field(payload, "humidite");
 
     /* Insérer en base */
+    ClientBDD *bdd = static_cast<ClientBDD *>(userdata);
     if (temperature > -900.0f || pression > -900.0f || humidite > -900.0f) {
-        if (db_insert(capteur_id, temperature, pression, humidite) == 0)
+        if (bdd->insert(capteur_id, temperature, pression, humidite) == 0)
             printf("[DB]  Inséré: %s T=%.1f P=%.1f H=%.1f\n",
                    capteur_id, temperature, pression, humidite);
     }
@@ -164,18 +123,6 @@ static void on_connect(struct mosquitto *m, void *, int rc)
     }
 }
 
-/* ── Reconnexion DB automatique ─────────────────────────────────── */
-
-static int ensure_db_connection(void)
-{
-    if (db_conn && mysql_ping(db_conn) == 0)
-        return 0;
-
-    fprintf(stderr, "[DB] Connexion perdue, reconnexion...\n");
-    if (db_conn) mysql_close(db_conn);
-    return db_connect();
-}
-
 /* ── Main ───────────────────────────────────────────────────────── */
 
 int main(void)
@@ -186,12 +133,14 @@ int main(void)
     /* Initialisation Mosquitto */
     mosquitto_lib_init();
 
+    ClientBDD bdd(DB_HOST, DB_USER, DB_PASS, DB_NAME);
+
     /* Connexion DB */
-    if (db_connect() != 0)
+    if (bdd.open() != 0)
         goto cleanup;
 
     /* Création du client MQTT */
-    mosq = mosquitto_new(MQTT_CLIENT_ID, true, nullptr);
+    mosq = mosquitto_new(MQTT_CLIENT_ID, true, &bdd);
     if (!mosq) {
         fprintf(stderr, "[MQTT] Impossible de créer le client\n");
         goto cleanup;
@@ -213,7 +162,7 @@ int main(void)
 
     /* Boucle principale */
     while (running) {
-        ensure_db_connection();
+        bdd.ensure_connection();
         int rc = mosquitto_loop(mosq, 1000, 1);
         if (rc != MOSQ_ERR_SUCCESS && running) {
             fprintf(stderr, "[MQTT] Erreur: %s — reconnexion dans 5s\n",
@@ -229,7 +178,6 @@ cleanup:
         mosquitto_disconnect(mosq);
         mosquitto_destroy(mosq);
     }
-    if (db_conn) mysql_close(db_conn);
     mosquitto_lib_cleanup();
     printf("Serveur arrêté.\n");
     return 0;
