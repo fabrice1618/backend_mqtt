@@ -5,9 +5,10 @@
 #include <unistd.h>
 
 ClientMQTT::ClientMQTT(const char *host, int port, const char *client_id,
-                       const char *topic, int keepalive, MessageCallback cb)
+                       const char *topic, int keepalive, MessageCallback cb,
+                       const char *user, const char *pass)
     : mosq_(nullptr), host_(host), port_(port), client_id_(client_id),
-      topic_(topic), keepalive_(keepalive), cb_(cb)
+      topic_(topic), keepalive_(keepalive), cb_(cb), user_(user), pass_(pass)
 {
     mosquitto_lib_init();
 }
@@ -26,6 +27,9 @@ void ClientMQTT::open()
 
     mosquitto_connect_callback_set(mosq_, on_connect);
     mosquitto_message_callback_set(mosq_, on_message);
+
+    if (user_ && pass_)
+        mosquitto_username_pw_set(mosq_, user_, pass_);
 
     if (mosquitto_connect(mosq_, host_, port_, keepalive_) != MOSQ_ERR_SUCCESS)
         throw std::runtime_error("[MQTT] Connexion au broker échouée");

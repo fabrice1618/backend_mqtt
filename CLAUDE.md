@@ -40,4 +40,4 @@ Single-file C++17 server (`mqtt_mysql_server.cpp`) that bridges MQTT sensor mess
 - Expected JSON payload fields: `temperature`, `pression`, `humidite` (all floats). Missing fields default to `-999.0` sentinel and the row is skipped if all three are absent/invalid.
 - `ensure_db_connection()` is called each loop iteration to transparently reconnect on MySQL drop.
 - MQTT loop errors trigger a 5-second backoff then `mosquitto_reconnect`.
-- JSON parsing is hand-rolled (`parse_float_field` / `parse_string_field`) — no external JSON library.
+- JSON parsing is hand-rolled (`parse_float_field`) — no external JSON library.

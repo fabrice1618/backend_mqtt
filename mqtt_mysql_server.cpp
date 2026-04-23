@@ -69,7 +69,7 @@ int main(void)
         g_bdd = &bdd;
 
         ClientMQTT mqtt(MQTT_HOST, MQTT_PORT, MQTT_CLIENT_ID, MQTT_TOPIC, MQTT_KEEPALIVE,
-                        on_message);
+                        on_message, MQTT_USER, MQTT_PASS);
 
         bdd.open();
         mqtt.open();
